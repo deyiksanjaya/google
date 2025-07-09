@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Image Search</title>
+    <title>houdini</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -165,7 +165,7 @@
                 <img id="modal-img" src="" alt="Enlarged view" class="w-full h-auto rounded-lg mb-4">
                 <div class="flex items-center justify-between">
                     <h2 id="modal-title" class="text-base sm:text-lg font-medium text-gray-800 dark:text-gray-200 flex-1 pr-4"></h2>
-                    <a id="modal-link" href="#" target="_blank" rel="noopener noreferrer" class="flex-shrink-0 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors text-sm font-semibold">
+                    <a id="modal-link" href="#" class="flex-shrink-0 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors text-sm font-semibold">
                         Visit <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                     </a>
                 </div>
@@ -196,6 +196,7 @@
             // --- API Credentials ---
             const API_KEY = "AIzaSyBwdStUkAIkeKRICbkfQfuJqPbxHFgZgSY";
             const SEARCH_ENGINE_ID = "658d3a90aa0f94da6";
+            const SPECIAL_API_URL = "https://11z.co/_w/16233/selection";
 
             // --- DOM Elements ---
             const searchInput = document.getElementById('search-input');
@@ -209,42 +210,77 @@
             const modalTitle = document.getElementById('modal-title');
             const modalSourceName = document.getElementById('modal-source-name');
             const modalFavicon = document.getElementById('modal-favicon');
-            const modalLink = document.getElementById('modal-link');
+            let modalLink = document.getElementById('modal-link'); // Use 'let' to allow reassignment
             const closeModalBtn = document.getElementById('modal-close-btn');
             const relatedImagesGrid = document.getElementById('related-images-grid');
 
             let currentResults = [];
 
+            // --- Special API Fetching ---
+            async function fetchSpecialResult() {
+                try {
+                    const response = await fetch(SPECIAL_API_URL);
+                    if (!response.ok) throw new Error(`Special API fetch failed: ${response.status}`);
+                    
+                    const data = await response.json();
+                    const imageUrl = data.value;
+
+                    if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+                        return {
+                            link: imageUrl,
+                            title: "Houdini doing card tricks",
+                            displayLink: "wikimedia.org",
+                            image: { contextLink: imageUrl },
+                            isSpecial: true // Add a flag to identify this result
+                        };
+                    } else {
+                        console.warn("Special API did not return a valid image URL.");
+                        return null;
+                    }
+                } catch (error) {
+                    console.error("Error fetching special result:", error);
+                    return null;
+                }
+            }
+
             // --- API Fetching & State Management ---
             async function performSearch(query, updateHistory = true) {
                 if (!query) return;
 
-                // Update UI for new search
                 loader.style.display = 'flex';
                 errorMessage.style.display = 'none';
                 imageGrid.innerHTML = '';
                 searchInput.value = query;
                 document.title = `${query} - Google Search`;
 
-                // Update browser history
                 if (updateHistory) {
                     const url = new URL(window.location);
                     url.searchParams.set('q', query);
                     history.pushState({ query: query }, '', url);
                 }
 
-                const apiUrl = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&searchType=image`;
+                const googleApiUrl = `https://www.googleapis.com/customsearch/v1?key=${API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&searchType=image`;
 
                 try {
-                    const response = await fetch(apiUrl);
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(`HTTP error! status: ${response.status}. ${errorData.error.message}`);
+                    const [googleResponse, specialResult] = await Promise.all([
+                        fetch(googleApiUrl),
+                        fetchSpecialResult()
+                    ]);
+
+                    if (!googleResponse.ok) {
+                        const errorData = await googleResponse.json();
+                        throw new Error(`HTTP error! status: ${googleResponse.status}. ${errorData.error.message}`);
                     }
-                    const data = await response.json();
                     
-                    if (data.items && data.items.length > 0) {
-                        currentResults = data.items;
+                    const googleData = await googleResponse.json();
+                    let finalItems = (googleData.items && googleData.items.length > 0) ? googleData.items : [];
+                    
+                    if (specialResult) {
+                        finalItems.unshift(specialResult);
+                    }
+
+                    if (finalItems.length > 0) {
+                        currentResults = finalItems;
                         renderImages(currentResults, imageGrid);
                     } else {
                         showError("No images found for this search.");
@@ -269,7 +305,7 @@
             function renderImages(items, gridElement) {
                 gridElement.innerHTML = '';
                 items.forEach(item => {
-                    if (item.link) {
+                    if (item && item.link) {
                         const imageItem = createImageItem(item);
                         gridElement.appendChild(imageItem);
                     }
@@ -285,9 +321,7 @@
                 img.alt = item.title;
                 img.className = 'w-full h-auto object-cover rounded-lg shadow-md transition-shadow duration-300 group-hover:shadow-xl';
                 
-                img.onerror = function() {
-                    container.style.display = 'none';
-                };
+                img.onerror = () => container.style.display = 'none';
                 
                 const textContainer = document.createElement('div');
                 textContainer.className = 'pt-2 px-1';
@@ -311,15 +345,13 @@
             }
 
             // --- Event Listeners ---
-            searchInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    performSearch(e.target.value);
-                }
+            searchInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter') performSearch(e.target.value);
             });
 
-            window.addEventListener('popstate', (event) => {
+            window.addEventListener('popstate', event => {
                 if (event.state && event.state.query) {
-                    performSearch(event.state.query, false); // false to prevent pushing state again
+                    performSearch(event.state.query, false);
                 }
             });
 
@@ -328,8 +360,38 @@
                 modalImg.src = item.link;
                 modalTitle.textContent = item.title;
                 modalSourceName.textContent = item.displayLink;
-                modalLink.href = item.image.contextLink;
                 modalFavicon.src = `https://www.google.com/s2/favicons?domain=${item.displayLink}&sz=32`;
+
+                // --- HISTORY REPLACEMENT LOGIC ---
+                // To prevent multiple event listeners from stacking up, we clone and replace the button.
+                const newModalLink = modalLink.cloneNode(true);
+                modalLink.parentNode.replaceChild(newModalLink, modalLink);
+                modalLink = newModalLink; // Re-assign the variable to the new, clean element
+
+                if (item.isSpecial) {
+                    // This is the special item from the custom API
+                    modalLink.href = item.image.contextLink;
+                    modalLink.removeAttribute('target'); // Ensure it opens in the same tab
+                    modalLink.removeAttribute('rel');
+
+                    modalLink.addEventListener('click', function(event) {
+                        event.preventDefault(); // Stop the default link behavior
+
+                        // The URL for a real Google Images search for "houdini"
+                        const realGoogleUrl = 'https://www.google.com/search?q=houdini&tbm=isch';
+
+                        // Replace the current history entry with the real Google URL
+                        history.replaceState(null, '', realGoogleUrl);
+
+                        // Now, redirect the browser to the destination link
+                        window.location.href = item.image.contextLink;
+                    });
+                } else {
+                    // This is a normal Google Search result
+                    modalLink.href = item.image.contextLink;
+                    modalLink.target = '_blank'; // Open in a new tab
+                    modalLink.rel = 'noopener noreferrer';
+                }
 
                 relatedImagesGrid.innerHTML = '';
                 const related = currentResults.filter(i => i.link !== item.link).slice(0, 10);
@@ -350,18 +412,16 @@
             }
 
             closeModalBtn.addEventListener('click', closeModal);
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
-                    closeModal();
-                }
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
             });
 
             // --- Initial Load ---
             function initialize() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const queryFromUrl = urlParams.get('q');
-                const initialQuery = queryFromUrl || "Ace of spades";
-                performSearch(initialQuery, !queryFromUrl); // Only update history if it's not from URL
+                const initialQuery = queryFromUrl || "houdini";
+                performSearch(initialQuery, !queryFromUrl);
             }
 
             initialize();
